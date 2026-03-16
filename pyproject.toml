@@ -1,0 +1,17 @@
+[project]
+name = "mobility-ai-project"
+version = "0.1.0"
+description = "Cross-Attention 기반 멀티모달 융합을 통한 전기차 운전 패턴-배터리 에너지 소모 인과 해석 (ITRC)"
+requires-python = ">=3.11"
+dependencies = [
+    "ipykernel>=7.2.0",
+    "jupyter>=1.1.1",
+    "matplotlib>=3.10.8",
+    "numpy>=2.4.3",
+    "pandas>=3.0.1",
+    "scikit-learn>=1.8.0",
+    "scipy>=1.17.1",
+    "seaborn>=0.13.2",
+    "shap>=0.51.0",
+    "torch>=2.10.0",
+]

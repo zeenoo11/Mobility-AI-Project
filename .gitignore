@@ -205,3 +205,23 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# 대용량 데이터셋 파일 (직접 다운로드 필요)
+data/**/*.csv
+data/**/*.mat
+data/**/*.zip
+data/**/*.pptx
+data/**/*.pdf
+data/**/*.xlsx
+data/**/*.txt
+!data/**/README.md
+
+# uv 가상환경
+.venv/
+
+# Claude memory
+.claude/
+
+# 체크포인트 및 결과 바이너리
+results/checkpoints/
+results/figures/
