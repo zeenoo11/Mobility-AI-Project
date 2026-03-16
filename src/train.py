@@ -26,12 +26,12 @@ class LinearWarmupCosineScheduler:
 
     def step(self, epoch=None):
         self._step_count += 1
-        if self._step_count <= self.warmup_epochs:
+        if self.warmup_epochs > 0 and self._step_count <= self.warmup_epochs:
             scale = self._step_count / self.warmup_epochs
             for pg, base_lr in zip(self.optimizer.param_groups, self.base_lrs):
                 pg['lr'] = base_lr * scale
         else:
-            self.cosine.step()
+            self.cosine.step(epoch)
 
     def get_last_lr(self):
         return [pg['lr'] for pg in self.optimizer.param_groups]
