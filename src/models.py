@@ -140,20 +140,25 @@ class CrossAttentionNet(nn.Module):
     """
     Proposed multimodal fusion model with bidirectional cross-attention.
 
+    Improvements over MVP v1:
+    - Pre-LayerNorm (normalize before attention for training stability)
+    - Residual connections (attn_output + projected_input)
+    - 8 attention heads by default (matching CLAUDE.md design)
+
     Driving encoder: Multi-scale CNN → seq features
     Battery encoder: Bi-LSTM → seq features
-    Cross-attention:
+    Cross-attention (bidirectional):
       - BMS queries driving (Driving→Battery attention)
       - Driving queries BMS (Battery→Driving attention)
-    Concat + LayerNorm → FC → output
+    Residual + LayerNorm → FC → output
     """
 
     def __init__(self, drv_dim=6, bms_dim=4, cnn_out=48, lstm_hidden=64,
-                 n_heads=4, dropout=0.2):
+                 n_heads=8, dropout=0.2, attn_dim=64):
         super().__init__()
         # Driving encoder
         self.drv_encoder = MultiScaleCNN(in_channels=drv_dim, out_channels=cnn_out)
-        drv_feat_dim = self.drv_encoder.out_channels  # = cnn_out
+        drv_feat_dim = self.drv_encoder.out_channels
 
         # Battery encoder: Bi-LSTM (bidirectional → output_dim = 2 * hidden)
         self.bms_encoder = nn.LSTM(
@@ -164,12 +169,16 @@ class CrossAttentionNet(nn.Module):
             bidirectional=True,
             dropout=dropout,
         )
-        bms_feat_dim = lstm_hidden * 2  # bidirectional
+        bms_feat_dim = lstm_hidden * 2
 
         # Project both to same dimension for attention
-        attn_dim = 64
+        self.attn_dim = attn_dim
         self.drv_proj = nn.Linear(drv_feat_dim, attn_dim)
         self.bms_proj = nn.Linear(bms_feat_dim, attn_dim)
+
+        # Pre-LayerNorm (applied before attention)
+        self.pre_ln_drv = nn.LayerNorm(attn_dim)
+        self.pre_ln_bms = nn.LayerNorm(attn_dim)
 
         # Cross-attention: BMS queries Driving  (Q=bms, K=V=drv)
         self.attn_bms_q_drv_kv = nn.MultiheadAttention(
@@ -180,15 +189,18 @@ class CrossAttentionNet(nn.Module):
             embed_dim=attn_dim, num_heads=n_heads, dropout=dropout, batch_first=True
         )
 
-        self.layer_norm = nn.LayerNorm(attn_dim * 2)
-        self.dropout = nn.Dropout(dropout)
+        # Post-residual LayerNorm
+        self.post_ln_bms = nn.LayerNorm(attn_dim)
+        self.post_ln_drv = nn.LayerNorm(attn_dim)
+
+        self.dropout_layer = nn.Dropout(dropout)
 
         self.fc = nn.Sequential(
             nn.Linear(attn_dim * 2, 64),
-            nn.ReLU(),
+            nn.GELU(),
             nn.Dropout(dropout),
             nn.Linear(64, 32),
-            nn.ReLU(),
+            nn.GELU(),
             nn.Linear(32, 1),
         )
 
@@ -208,32 +220,37 @@ class CrossAttentionNet(nn.Module):
         bms_enc, _ = self.bms_encoder(bms)
 
         # Project to common attention dimension
-        drv_q = self.drv_proj(drv_enc)   # (batch, seq, attn_dim)
-        bms_q = self.bms_proj(bms_enc)   # (batch, seq, attn_dim)
+        drv_proj = self.drv_proj(drv_enc)   # (batch, seq, attn_dim)
+        bms_proj = self.bms_proj(bms_enc)   # (batch, seq, attn_dim)
 
-        # Cross-attention 1: BMS queries Driving
-        attn_bms, attn_w_bms = self.attn_bms_q_drv_kv(
-            query=bms_q, key=drv_q, value=drv_q
-        )  # attn_bms: (batch, seq, attn_dim)
+        # Pre-LayerNorm
+        drv_normed = self.pre_ln_drv(drv_proj)
+        bms_normed = self.pre_ln_bms(bms_proj)
 
-        # Cross-attention 2: Driving queries BMS
-        attn_drv, attn_w_drv = self.attn_drv_q_bms_kv(
-            query=drv_q, key=bms_q, value=bms_q
-        )  # attn_drv: (batch, seq, attn_dim)
+        # Cross-attention 1: BMS queries Driving (with Pre-LN inputs)
+        attn_bms_out, attn_w_bms = self.attn_bms_q_drv_kv(
+            query=bms_normed, key=drv_normed, value=drv_normed
+        )
+        # Residual connection: attention output + original projected BMS
+        bms_fused = self.post_ln_bms(bms_proj + self.dropout_layer(attn_bms_out))
+
+        # Cross-attention 2: Driving queries BMS (with Pre-LN inputs)
+        attn_drv_out, attn_w_drv = self.attn_drv_q_bms_kv(
+            query=drv_normed, key=bms_normed, value=bms_normed
+        )
+        # Residual connection: attention output + original projected Driving
+        drv_fused = self.post_ln_drv(drv_proj + self.dropout_layer(attn_drv_out))
 
         # Store attention weights
         self._last_attn_bms_q = attn_w_bms.detach()
         self._last_attn_drv_q = attn_w_drv.detach()
 
         # Global average pooling over sequence
-        attn_bms_pooled = attn_bms.mean(dim=1)   # (batch, attn_dim)
-        attn_drv_pooled = attn_drv.mean(dim=1)   # (batch, attn_dim)
+        bms_pooled = bms_fused.mean(dim=1)   # (batch, attn_dim)
+        drv_pooled = drv_fused.mean(dim=1)   # (batch, attn_dim)
 
-        # Concat + LayerNorm
-        fused = torch.cat([attn_bms_pooled, attn_drv_pooled], dim=-1)
-        fused = self.layer_norm(fused)
-        fused = self.dropout(fused)
-
+        # Concat → FC
+        fused = torch.cat([bms_pooled, drv_pooled], dim=-1)
         out = self.fc(fused).squeeze(-1)
 
         if return_attn:
@@ -249,14 +266,20 @@ class CrossAttentionNet(nn.Module):
 # Factory
 # ---------------------------------------------------------------------------
 
-def build_model(name, drv_dim=6, bms_dim=4, device='cpu'):
-    """Build a model by name and move to device."""
+def build_model(name, drv_dim=6, bms_dim=4, device='cpu', **kwargs):
+    """Build a model by name and move to device.
+
+    Extra kwargs are forwarded to CrossAttentionNet (e.g. cnn_out, lstm_hidden,
+    n_heads, dropout, attn_dim).
+    """
     if name == 'LSTMBaseline':
         model = LSTMBaseline(input_dim=bms_dim, hidden_dim=64)
     elif name == 'CNNLSTMConcat':
         model = CNNLSTMConcat(drv_dim=drv_dim, bms_dim=bms_dim, hidden_dim=64, cnn_channels=32)
     elif name == 'CrossAttentionNet':
-        model = CrossAttentionNet(drv_dim=drv_dim, bms_dim=bms_dim, cnn_out=48, lstm_hidden=64)
+        ca_defaults = dict(cnn_out=48, lstm_hidden=64, n_heads=8, dropout=0.2, attn_dim=64)
+        ca_defaults.update(kwargs)
+        model = CrossAttentionNet(drv_dim=drv_dim, bms_dim=bms_dim, **ca_defaults)
     else:
         raise ValueError(f"Unknown model: {name}")
     return model.to(device)

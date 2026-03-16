@@ -162,10 +162,45 @@
 
 ---
 
+## Phase 2.5. MVP 개선 실험 (2026-03-16)
+
+> MVP 결과에서 CrossAttentionNet(R²=0.923)이 CNNLSTMConcat(R²=0.946)보다 열위. 근본 원인 분석 후 개선 실험 수행.
+
+### 2.5-1. 학습 설정 변경 (`src/train.py`)
+- [x] CosineAnnealingWarmRestarts 스케줄러 적용 (`LinearWarmupCosineScheduler` 클래스)
+- [x] Linear Warmup (5 epoch) 추가
+- [x] EPOCHS: 30 → 100, PATIENCE: 5 → 15
+- [x] Gradient clipping max_norm 유지 (1.0)
+
+### 2.5-2. 아키텍처 수정 (`src/models.py`)
+- [x] CrossAttentionNet: Residual connection 추가 (attn_output + original_proj)
+- [x] CrossAttentionNet: Pre-LayerNorm 패턴 적용 (attention 전 정규화)
+- [x] CrossAttentionNet: n_heads 기본값 4 → 8
+- [x] CrossAttentionNet: ReLU → GELU 활성화 함수 변경
+- [x] build_model(): 하이퍼파라미터 외부 주입 지원 (**kwargs)
+
+### 2.5-3. 환경 설정
+- [x] PyTorch CUDA 128 (nightly) 설정 (`pyproject.toml` 업데이트)
+- [x] GPU 동작 확인 (RTX 5070 Ti, 2 epoch 테스트 통과)
+
+### 2.5-4. 하이퍼파라미터 서치 (`hparam_search.py`)
+- [x] 스크립트 작성 완료
+- [x] 탐색 공간: lstm_hidden {64, 128}, n_heads {4, 8}, dropout {0.1, 0.2, 0.3}, cnn_out {48, 96}
+- [ ] Grid search 실행 및 결과 저장 (`results/hparam_search.json`)
+- [ ] 최적 구성으로 최종 재학습 및 평가
+
+### 2.5-5. 결과 분석
+- [x] mvp_report.md 업데이트 (11장 문헌 비교 + 12장 근본 원인 분석 + 13장 개선 계획 + 참고문헌 6편)
+- [ ] 개선된 MVP 실험 실행 (`mvp_experiment.py` — 100 epoch, cosine warmup)
+- [ ] 개선 전/후 성능 비교표 작성
+
+---
+
 ## 현재 상태
 
 - [x] 연구계획서 작성 완료 (`docs/A_research_plan.md`)
 - [x] 상세 실험 계획서 작성 완료 (`docs/A_research_plan_2.md`)
 - [x] 데이터 다운로드 완료 (BMW i3 70트립 + McMaster LG HG2)
-- [x] 환경 구축 완료 (uv, Python 3.11, torch/shap 등)
-- [ ] MVP 구현 및 실험 (`src/`, `report/`)
+- [x] 환경 구축 완료 (uv, Python 3.11, PyTorch CUDA cu128)
+- [x] MVP 구현 및 실험 완료 (`src/`, `report/mvp_report.md`)
+- [ ] MVP 개선 실험 (Phase 2.5) — 코드 수정 완료, **실험 실행 대기 중**
