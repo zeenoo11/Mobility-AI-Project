@@ -32,9 +32,10 @@ JSON_OUT = os.path.join(RESULTS_DIR, 'final_results.json')
 WINDOW_SIZE = 60
 STRIDE = 10
 BATCH_SIZE = 64
-EPOCHS = 30
-PATIENCE = 5
+EPOCHS = 100
+PATIENCE = 15
 LR = 1e-3
+WARMUP_EPOCHS = 5
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 MODEL_NAMES = ['LSTMBaseline', 'CNNLSTMConcat', 'CrossAttentionNet']
@@ -81,6 +82,8 @@ def main():
             history, best_val = train_model(
                 model, train_loader, val_loader,
                 epochs=EPOCHS, lr=LR, patience=PATIENCE,
+                warmup_epochs=WARMUP_EPOCHS,
+                scheduler_type='cosine_warmup',
                 checkpoint_dir=CHECKPOINT_DIR,
                 model_name=model_name, device=DEVICE,
             )
@@ -192,6 +195,8 @@ def main():
             'epochs': EPOCHS,
             'patience': PATIENCE,
             'lr': LR,
+            'warmup_epochs': WARMUP_EPOCHS,
+            'scheduler': 'cosine_warmup',
             'device': DEVICE,
         },
         'models': {},
