@@ -1,0 +1,54 @@
+{
+  "experiment": "MVP - EV Battery Energy Consumption Prediction",
+  "data_stats": {
+    "n_trips": 37,
+    "n_train_trips": 26,
+    "n_val_trips": 6,
+    "n_test_trips": 5,
+    "total_windows": 46719,
+    "target_mean": 256.305908203125,
+    "target_std": 207.20640563964844,
+    "target_min": 3.4749298095703125,
+    "target_max": 1499.758544921875,
+    "window_size": 60,
+    "stride": 10
+  },
+  "config": {
+    "window_size": 60,
+    "stride": 10,
+    "batch_size": 64,
+    "epochs": 30,
+    "patience": 5,
+    "lr": 0.001,
+    "device": "cpu"
+  },
+  "models": {
+    "LSTMBaseline": {
+      "metrics": {
+        "rmse": 159.90313840533275,
+        "mae": 117.25445556640625,
+        "r2": 0.38024580478668213
+      },
+      "n_epochs_trained": 10,
+      "best_val_loss": 0.012405044011150798
+    },
+    "CNNLSTMConcat": {
+      "metrics": {
+        "rmse": 47.28355031995139,
+        "mae": 31.37247657775879,
+        "r2": 0.9458091855049133
+      },
+      "n_epochs_trained": 15,
+      "best_val_loss": 0.0007342484650194067
+    },
+    "CrossAttentionNet": {
+      "metrics": {
+        "rmse": 56.35326891999035,
+        "mae": 35.31945037841797,
+        "r2": 0.9230260848999023
+      },
+      "n_epochs_trained": 12,
+      "best_val_loss": 0.0010521175744093623
+    }
+  }
+}

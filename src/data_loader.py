@@ -71,10 +71,16 @@ def compute_window_energy(df, window_indices):
     dist_km = velocity_kmh * dt / 3600.0
 
     total_dist = dist_km.sum()
-    if total_dist < 1e-6:
+    if total_dist < 0.01:  # at least 10m traveled in window
         return np.nan
 
-    return energy_wh.sum() / total_dist
+    wh_per_km = energy_wh.sum() / total_dist
+
+    # Cap extreme outliers (realistic EV range: 0.5 ~ 1500 Wh/km)
+    if wh_per_km > 1500 or wh_per_km < 0.5:
+        return np.nan
+
+    return wh_per_km
 
 
 def process_trip(df, window_size=60, stride=10):

@@ -50,23 +50,12 @@ def main():
     # ----------------------------------------------------------------
     # 1. Load data
     # ----------------------------------------------------------------
-    try:
-        train_loader, val_loader, test_loader, scalers, stats = get_data_loaders(
-            DATA_DIR,
-            window_size=WINDOW_SIZE,
-            stride=STRIDE,
-            batch_size=BATCH_SIZE,
-        )
-    except Exception as e:
-        print(f"[ERROR] Data loading failed: {e}")
-        print("Retrying with window_size=30...")
-        train_loader, val_loader, test_loader, scalers, stats = get_data_loaders(
-            DATA_DIR,
-            window_size=30,
-            stride=10,
-            batch_size=BATCH_SIZE,
-        )
-        WINDOW_SIZE = 30
+    train_loader, val_loader, test_loader, scalers, stats = get_data_loaders(
+        DATA_DIR,
+        window_size=WINDOW_SIZE,
+        stride=STRIDE,
+        batch_size=BATCH_SIZE,
+    )
 
     print(f"\nData stats: {json.dumps(stats, indent=2)}\n")
     tgt_scaler = scalers['target']
