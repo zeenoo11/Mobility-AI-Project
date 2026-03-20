@@ -95,7 +95,7 @@ def train(config: dict | None = None):
     print(f"Device: {device}")
 
     # ── Data ────────────────────────────────────────────────────────────────
-    data_dir = Path(PROJECT_ROOT) / "sumo" / "sim_outputs"
+    data_dir = Path(PROJECT_ROOT) / "data" / "sumo" / "sim_outputs"
     data = load_dataset(
         data_dir,
         t_input=config["t_input"],

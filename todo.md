@@ -1,196 +1,165 @@
-# 연구 TODO
+# SUMO Graph WaveNet 충전 수요 예측 — 연구 TODO
 
-**연구 제목:** Cross-Attention 기반 멀티모달 융합을 통한 전기차 운전 패턴-배터리 에너지 소모 인과 해석
-**목표 저널:** Applied Energy (IF ~13, Q1) / Batteries (MDPI) 대안
-**총 기간:** 6개월 (2026-03 ~ 2026-08)
-
----
-
-## Phase 1. 데이터 확보 및 전처리 (1~2개월차)
-
-### 1-1. 데이터 다운로드
-- [x] **BMW i3 Real Driving Cycles** → `data/bmw_i3_driving_cycles/`
-  - TripA 32개 + TripB 38개 = 70개 트립, 세미콜론 구분 CSV, 48개 컬럼
-- [x] **McMaster LG 18650HG2** → `data/mcmaster_lg18650hg2/`
-  - 6개 온도 조건 (`n20`, `n10`, `0`, `10`, `25`, `40`°C), UDDS/HWFET/US06/LA92/Mixed 사이클
-
-### 1-2. 탐색적 데이터 분석 (EDA)
-- [ ] `notebooks/01_eda_bmw_i3.ipynb` 작성
-  - 72개 트립 분포 확인 (계절별, 거리별)
-  - 주행 변수 12개 시계열 플롯 및 통계량
-  - 결측치·이상치 탐지
-- [ ] `notebooks/02_eda_battery.ipynb` 작성
-  - 배터리 전압·전류·온도·SoC 분포 확인
-  - 트립별 에너지 소모량(Wh/km) 계산 및 분포 시각화
-  - 계절(외기 온도)에 따른 배터리 응답 차이 분석
-
-### 1-3. 전처리 파이프라인 (`src/data_loader.py`)
-- [ ] 모달리티 분리
-  - 주행 그룹: 속도, 스로틀, 브레이크, 가속도, 모터 토크, 고도 (6개)
-  - 배터리 그룹: 전압, 전류, 온도, SoC, 배터리 파워 (5개)
-- [ ] Min-Max 정규화 (트립 단위)
-- [ ] 슬라이딩 윈도우 슬라이싱 (window=60초, stride=10초)
-- [ ] 타겟 변수 계산
-  - **Primary:** 구간별 에너지 소모율 (Wh/km) = `배터리파워(kW) × 시간(h) / 거리(km)`
-  - **Secondary:** 배터리 스트레스 지수 (BSI) = `α·|dI/dt| + β·|dT/dt| + γ·|ΔV|` (가중치 EDA 후 결정)
-- [ ] 트립 분할: Train(50) / Validation(10) / Test(12) — 여름/겨울 균형 유지
-- [ ] `src/dataset.py` — PyTorch `Dataset` / `DataLoader` 클래스 구현
+**최종 업데이트:** 2026-03-21
+**목표:** SUMO 시뮬레이션 기반 EV 충전소 시공간 수요 예측 (Graph WaveNet)
 
 ---
 
-## Phase 2. 베이스라인 모델 학습 (2개월차)
+## 현재 상태 요약
 
-- [ ] **단일 LSTM** (`src/models/lstm_baseline.py`)
-  - 입력: BMS 데이터만 (배터리 그룹 5개 변수)
-  - 목표: RMSE, MAE, R² 측정
-- [ ] **XGBoost** (`notebooks/03_xgboost_baseline.ipynb`)
-  - 수동 특성 추출: 윈도우별 통계(평균, 표준편차, 최대/최소, 기울기)
-  - 목표: 딥러닝의 우위 검증을 위한 기준선 확보
-- [ ] **CNN-LSTM Concat** (`src/models/cnn_lstm_concat.py`)
-  - 주행+배터리 단순 연결(concatenation) 후 학습
-  - 목표: Cross-Attention 대비 단순 융합의 한계 확인
-- [ ] 베이스라인 결과 정리 → `results/baseline_comparison.csv`
+| 항목 | 상태 | 비고 |
+|---|---|---|
+| SUMO 시뮬레이션 | ✅ 완료 | 162 조합 + 1 테스트 = 163 runs |
+| 데이터 파싱 | ✅ 완료 | (163, 53, 24, 6), SoC 로직 개선 반영 |
+| 그래프 구축 | ✅ 완료 | 53 nodes, 462 edges |
+| Graph WaveNet v1 학습 | ❌ 실패 | R² = -602,350 (치명적) |
+| 코드 리팩토링 | ✅ 완료 | `src/sumo/`, `data/sumo/`, `scripts/`, `assets/` 분리 |
 
----
+### v1 학습 실패 근본 원인 분석
 
-## Phase 3. 제안 모델 구현 및 학습 (3개월차)
-
-### 3-1. Dual-Encoder Cross-Attention Network (`src/models/cross_attention_net.py`)
-- [ ] **주행 인코더 (Multi-scale 1D-CNN)**
-  - 커널 크기 3, 5, 7 병렬 적용 → feature concat
-  - BatchNorm + ReLU + Dropout
-- [ ] **배터리 인코더 (Bi-LSTM)**
-  - 2-layer Bidirectional LSTM
-  - Hidden state 시퀀스 전체를 Cross-Attention 입력으로 전달
-- [ ] **양방향 Cross-Attention 융합**
-  - Driving→Battery Attention (8 heads): Query=BMS, Key/Value=CAN
-  - Battery→Driving Attention (8 heads): Query=CAN, Key/Value=BMS
-  - 두 방향 결과 concat → Feed-Forward Network
-- [ ] **예측 헤드**
-  - Primary head: 에너지 소모율 (Wh/km) 회귀
-  - Secondary head: BSI 회귀
-  - Multi-task Loss = `L_wh + λ·L_bsi`
-
-### 3-2. 학습 설정 (`src/train.py`)
-- [ ] Optimizer: AdamW (lr=1e-3, weight_decay=1e-4)
-- [ ] Scheduler: CosineAnnealingLR
-- [ ] 조기 종료 (patience=10, validation loss 기준)
-- [ ] 학습 곡선 로깅 → `results/training_logs/`
-
-### 3-3. 하이퍼파라미터 튜닝
-- [ ] hidden_dim: {64, 128, 256}
-- [ ] num_heads: {4, 8}
-- [ ] window_size: {30, 60, 120}초
-- [ ] λ (multi-task 가중치): {0.1, 0.3, 0.5}
-- [ ] 최적 구성 → `results/hparam_search.json`
+1. **극단적 데이터 희소성**: non-zero 비율 0.7% (99.3%가 0)
+   - 163 run × 53 station × 24 bin 중 충전 이벤트가 있는 셀이 전체의 0.7%
+   - 27/53 충전소만 한 번이라도 활성화 (51%가 영구 비활성)
+   - 활성 충전소도 run당 평균 8~13개만 사용
+2. **R² 계산 오류**: 충전소별 R² 평균 → 분산이 0에 가까운 비활성 충전소에서 R²가 -∞
+3. **정규화 문제**: 전체 Min-Max 정규화 → 99.3% 0에 의해 비활성 구간 정보가 없어짐
+4. **타겟 선정**: num_arrivals(이산, 0~2) 예측 → 대부분 0을 예측해도 MSE가 작음
 
 ---
 
-## Phase 4. Ablation Study 및 해석 분석 (4개월차)
+## Phase 1: 데이터 파이프라인 개선 (급선무)
 
-### 4-1. Ablation Study (`notebooks/04_ablation.ipynb`)
-- [ ] A1: 단일 LSTM only (베이스라인)
-- [ ] A2: 1D-CNN 인코더 제거 (BMS만)
-- [ ] A3: Bi-LSTM → 단방향 LSTM으로 교체
-- [ ] A4: Cross-Attention → Self-Attention으로 교체
-- [ ] A5: 단방향 Attention (Driving→Battery만)
-- [ ] **A6: 제안 모델 전체 (Full)**
-- [ ] 결과 표 → `results/ablation_table.csv`
+### 1-1. 활성 충전소 필터링
+- [ ] 전체 run에서 한 번이라도 활성화된 27개 충전소만 추출
+- [ ] 인접 행렬도 27×27로 재구성 (graph_builder에서 서브그래프 추출)
+- [ ] `src/sumo_dataset.py` 수정: `active_mask` 파라미터 추가
 
-### 4-2. Attention Weight 해석 (`notebooks/05_attention_analysis.ipynb`)
-- [ ] **교차모달 인과 맵 (Cross-Modal Causal Map)**
-  - 주행 변수 × 배터리 변수 평균 Attention Weight 히트맵
-  - 정속 구간 vs 급가속 구간 비교
-- [ ] **시간적 인과 프로파일**
-  - 급가속·급제동·고속 순항 이벤트 전후 Attention Weight 시계열 추적
-- [ ] **Head별 역할 분석**
-  - 8개 Head의 가중치 패턴 클러스터링
-  - 각 Head가 전문화한 교차모달 관계 명명 (예: "가속-전류 관계")
+### 1-2. 타겟 변수 재설정
+- [ ] **Primary 타겟**: `total_energy` (feature[2]) — 연속값, 물리적 의미 명확
+- [ ] **log1p 변환** 적용: `y = log(1 + total_energy)` → 0과 큰 값의 스케일 차이 완화
+- [ ] 역변환 함수(`expm1`) 구현하여 평가 시 원래 스케일로 복원
 
----
+### 1-3. 정규화 전략 변경
+- [ ] Min-Max → **Z-score 정규화** (활성 셀 기준 mean/std 계산)
+- [ ] 또는: log1p 변환 후 정규화 (log 공간에서 정규화가 더 안정적)
+- [ ] 정규화 통계량 저장 (역변환용)
 
-## Phase 5. 클러스터링 및 맞춤형 전략 도출 (5개월차)
-
-- [ ] **운전 습관 특성 추출** (`notebooks/06_driving_clustering.ipynb`)
-  - 트립별 피처: 평균 가속도, 급가속 빈도, 정지 비율, 최고 속도, 평균 스로틀 개도
-- [ ] **클러스터링**
-  - k-means (k=2~5) + Silhouette Score로 최적 k 결정
-  - 클러스터 시각화 (PCA 2D)
-- [ ] **클러스터별 인과 맵 비교**
-  - 공격적 운전 vs 에코 운전 클러스터의 Attention Weight 차이 분석
-- [ ] **맞춤형 에코 드라이빙 가이드라인 도출**
-  - "공격적 운전자는 스로틀 개도 50% 이하 유지 시 BSI X% 감소" 등 정량적 권고안
+### 1-4. 입력 윈도우 축소
+- [ ] `t_input`: 12 → **6** (30분) — 2시간 시뮬레이션에서 12 step은 과다
+- [ ] receptive field: 6 step이면 dilation 1,2 (2 blocks × 2 layers)로 충분
 
 ---
 
-## Phase 6. 최종 평가 및 논문 작성 (6개월차)
+## Phase 2: 모델 및 학습 개선
 
-### 6-1. 최종 성능 평가 (`notebooks/07_final_evaluation.ipynb`)
-- [ ] 테스트셋(12개 트립) 기준 전체 모델 비교
-  - 평가지표: RMSE, MAE, R² (에너지 소모율 / BSI)
-- [ ] **일반화 검증:** McMaster LG 18650HG2 데이터로 Cross-domain 검증
-- [ ] 결과 최종 정리 → `results/final_results.csv`
+### 2-1. 손실 함수 개선
+- [ ] **Weighted MSE**: 비제로 샘플에 높은 가중치 부여
+  - `loss = MSE(pred, target) * (1 + α * (target > 0))` (α=5~10)
+- [ ] 또는 **Huber Loss** (outlier에 강건)
+- [ ] 또는 **Zero-Inflated 접근**: 이진 분류(충전 유무) + 회귀(에너지량) 2-head
 
-### 6-2. 논문 작성
-- [ ] Abstract, Introduction 초안
-- [ ] Methodology 섹션 (아키텍처 다이어그램 포함)
-- [ ] Experiments & Results 섹션 (표·그래프)
-- [ ] Discussion & Conclusion
-- [ ] 대한산업공학회 발표 슬라이드 준비 (중간 성과)
-- [ ] **Applied Energy** 투고 준비 (최종 목표)
+### 2-2. R² 메트릭 수정
+- [ ] 충전소별 평균 → **Global R²** (전체 예측값을 flat하여 계산)
+- [ ] 또는: 활성 충전소만 필터링 후 R² 계산
+- [ ] 추가 메트릭: **MAPE** (활성 셀 한정), **F1-like** (충전 발생 여부 정확도)
 
----
+### 2-3. 모델 구조 조정
+- [ ] `t_input=6`에 맞춰 dilation 축소: 2 blocks × 2 layers (dilation 1, 2)
+- [ ] hidden_dim: 32 → **48 or 64** (정보 손실 보상)
+- [ ] Static node features 통합: 충전소 위치·전력 정보를 input에 concat
 
-## 성능 목표 (최소 기준)
-
-| 지표 | 목표 |
-|---|---|
-| 에너지 소모율 RMSE | Baseline(LSTM) 대비 15% 이상 감소 |
-| BSI MAE | Baseline 대비 15% 이상 감소 |
-| R² (에너지 소모율) | 0.90 이상 |
-| Ablation A5→A6 개선 | Cross-Attention 양방향의 유의미한 기여 확인 |
+### 2-4. 학습 설정
+- [ ] Early stopping patience: 15 → **20** (수렴 기회 확보)
+- [ ] Batch size: 16 → **32** (163 runs으로 데이터 증가)
+- [ ] Learning rate: 1e-3 유지, warmup 5 epoch 유지
 
 ---
 
-## Phase 2.5. MVP 개선 실험 (2026-03-16)
+## Phase 3: 실험 및 비교
 
-> MVP 결과에서 CrossAttentionNet(R²=0.923)이 CNNLSTMConcat(R²=0.946)보다 열위. 근본 원인 분석 후 개선 실험 수행.
+### 3-1. 베이스라인 모델 구현
+- [ ] **Naive(Last-value)**: 직전 시간 구간 값을 그대로 예측
+- [ ] **Historical Average**: 같은 시간대 평균값 예측
+- [ ] **LSTM**: 충전소별 독립 LSTM (공간 무시)
+- [ ] **GCN + GRU**: 단순 GCN 공간 + GRU 시간 (non-WaveNet)
 
-### 2.5-1. 학습 설정 변경 (`src/train.py`)
-- [x] CosineAnnealingWarmRestarts 스케줄러 적용 (`LinearWarmupCosineScheduler` 클래스)
-- [x] Linear Warmup (5 epoch) 추가
-- [x] EPOCHS: 30 → 100, PATIENCE: 5 → 15
-- [x] Gradient clipping max_norm 유지 (1.0)
+### 3-2. Ablation Study
+- [ ] A1: Graph WaveNet (predefined adj only, adaptive 제거)
+- [ ] A2: Graph WaveNet (adaptive adj only, predefined 제거)
+- [ ] A3: WaveNet only (그래프 제거, 시간축만)
+- [ ] A4: GCN only (시간축 제거, 공간만)
+- [ ] A5: Full Graph WaveNet (proposed)
 
-### 2.5-2. 아키텍처 수정 (`src/models.py`)
-- [x] CrossAttentionNet: Residual connection 추가 (attn_output + original_proj)
-- [x] CrossAttentionNet: Pre-LayerNorm 패턴 적용 (attention 전 정규화)
-- [x] CrossAttentionNet: n_heads 기본값 4 → 8
-- [x] CrossAttentionNet: ReLU → GELU 활성화 함수 변경
-- [x] build_model(): 하이퍼파라미터 외부 주입 지원 (**kwargs)
-
-### 2.5-3. 환경 설정
-- [x] PyTorch CUDA 128 (nightly) 설정 (`pyproject.toml` 업데이트)
-- [x] GPU 동작 확인 (RTX 5070 Ti, 2 epoch 테스트 통과)
-
-### 2.5-4. 하이퍼파라미터 서치 (`hparam_search.py`)
-- [x] 스크립트 작성 완료
-- [x] 탐색 공간: lstm_hidden {64, 128}, n_heads {4, 8}, dropout {0.1, 0.2, 0.3}, cnn_out {48, 96}
-- [ ] Grid search 실행 및 결과 저장 (`results/hparam_search.json`)
-- [ ] 최적 구성으로 최종 재학습 및 평가
-
-### 2.5-5. 결과 분석
-- [x] mvp_report.md 업데이트 (11장 문헌 비교 + 12장 근본 원인 분석 + 13장 개선 계획 + 참고문헌 6편)
-- [ ] 개선된 MVP 실험 실행 (`mvp_experiment.py` — 100 epoch, cosine warmup)
-- [ ] 개선 전/후 성능 비교표 작성
+### 3-3. 결과 분석
+- [ ] 충전소별 예측 정확도 히트맵
+- [ ] Learned adjacency matrix vs predefined adjacency 비교 시각화
+- [ ] 시간대별 예측 오차 분석 (피크 시간 vs 비피크)
 
 ---
 
-## 현재 상태
+## Phase 4: 시뮬레이션 확장 (선택)
 
-- [x] 연구계획서 작성 완료 (`docs/A_research_plan.md`)
-- [x] 상세 실험 계획서 작성 완료 (`docs/A_research_plan_2.md`)
-- [x] 데이터 다운로드 완료 (BMW i3 70트립 + McMaster LG HG2)
-- [x] 환경 구축 완료 (uv, Python 3.11, PyTorch CUDA cu128)
-- [x] MVP 구현 및 실험 완료 (`src/`, `report/mvp_report.md`)
-- [ ] MVP 개선 실험 (Phase 2.5) — 코드 수정 완료, **실험 실행 대기 중**
+### 4-1. 시뮬레이션 다양성 개선
+- [ ] 시간 확장: 2시간 → 6시간 or 24시간 (시간 구간 증가 → 희소성 완화)
+- [ ] 경로 다양화: 다중 시드로 경로 파일 재생성
+- [ ] 충전소 설정 변형: 충전 파워 (75kW → 50/150kW 혼합)
+
+### 4-2. 외부 변수 통합
+- [ ] 시간 임베딩: 시간대(hour)를 cyclical encoding으로 피처 추가
+- [ ] 날씨/온도 변수 (시뮬레이션 시나리오로 간접 반영)
+
+---
+
+## Phase 5: 보고서 및 논문
+
+### 5-1. 진행 보고서 업데이트
+- [ ] `report/sumo_graph_wavenet_progress.md` 갱신
+  - 리팩토링된 프로젝트 구조 반영
+  - 현실적 파라미터 (50-100kWh) 반영
+  - v1 실패 원인 분석 + v2 개선 사항 기록
+  - 새로운 데이터 통계 (163 runs, 0.7% 활성 비율) 기록
+
+### 5-2. 학술 발표/논문 준비
+- [ ] 대한산업공학회 추계학술대회 초록 작성
+- [ ] 실험 결과 정리 표 + 그래프
+- [ ] 축 2 (BMW i3 에너지 소모 예측) 연계 시나리오 정리
+
+---
+
+## 프로젝트 구조 (현재)
+
+```
+Mobility-AI-Project/
+├── assets/
+│   └── sumo_tutorial/          # SUMO 튜토리얼 원본 (5_electric 등)
+├── data/
+│   ├── bmw_i3_driving_cycles/  # 축 2 데이터
+│   ├── mcmaster_lg18650hg2/    # 일반화 검증
+│   └── sumo/
+│       ├── graph_data/         # adj.npy, positions.npy 등
+│       └── sim_outputs/        # 163 runs (station_features.npy)
+├── src/
+│   ├── sumo/
+│   │   ├── generator.py        # SUMO 배치 실행기
+│   │   ├── parser.py           # XML → tensor 파서
+│   │   └── graph.py            # 충전소 그래프 구축
+│   ├── sumo_dataset.py         # PyTorch Dataset
+│   └── models/
+│       └── graph_wavenet.py    # Graph WaveNet (53K params)
+├── scripts/
+│   └── train_sumo.py           # 학습 파이프라인
+├── report/                     # 진행 보고서
+├── results/sumo_demand/        # 학습 결과 (results.json, best_model.pt)
+└── todo.md                     # 이 파일
+```
+
+---
+
+## 성능 목표
+
+| 지표 | 목표 | 비고 |
+|---|---|---|
+| R² (Global, total_energy) | ≥ 0.5 | v1: -602,350 → 양수로 전환이 최우선 |
+| RMSE (log scale) | Naive 대비 20%↓ | log1p 변환 후 비교 |
+| 충전 유무 정확도 | ≥ 0.85 F1 | 이진 분류 관점 보조 평가 |
+| Learned adj 해석성 | 정성적 확인 | 지리적 근접 + 교통 흐름 반영 여부 |

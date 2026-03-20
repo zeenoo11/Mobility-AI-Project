@@ -215,6 +215,7 @@ data/**/*.pdf
 data/**/*.xlsx
 data/**/*.txt
 !data/**/README.md
+data/sumo
 
 # uv 가상환경
 .venv/
@@ -225,8 +226,11 @@ data/**/*.txt
 # 체크포인트 및 결과 바이너리
 results/checkpoints/
 results/figures/
+results/sumo_demand/
 
 # SUMO 파일
 sumo/graph_data/
 sumo/sim_outputs/
 sumo/tutorial/
+
+assets/

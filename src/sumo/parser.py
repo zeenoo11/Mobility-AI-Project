@@ -74,6 +74,13 @@ def parse_charging_stations(path: Path) -> dict[str, dict]:
 
         vehicles = []
         for veh in elem.findall("vehicle"):
+            arrival_capacity = 0.0
+            max_capacity = 35000.0
+            first_step = veh.find("step")
+            if first_step is not None:
+                arrival_capacity = float(first_step.get("actualBatteryCapacity", "0"))
+                max_capacity = float(first_step.get("maximumBatteryCapacity", "35000"))
+
             veh_info = {
                 "id": veh.get("id"),
                 "energy_charged": float(
@@ -81,6 +88,8 @@ def parse_charging_stations(path: Path) -> dict[str, dict]:
                 ),
                 "begin": float(veh.get("chargingBegin", "0")),
                 "end": float(veh.get("chargingEnd", "0")),
+                "arrival_capacity": arrival_capacity,
+                "max_capacity": max_capacity
             }
             vehicles.append(veh_info)
 
@@ -135,6 +144,13 @@ def aggregate_station_features(trips: list[dict],
     arrival_counts = np.zeros((N_STATIONS, N_BINS), dtype=np.int32)
     charging_durs = [[[] for _ in range(N_BINS)] for _ in range(N_STATIONS)]
     blocked_durs = [[[] for _ in range(N_BINS)] for _ in range(N_STATIONS)]
+    soc_arrivals = [[[] for _ in range(N_BINS)] for _ in range(N_STATIONS)]
+
+    # Map vehicle capacities from trip data
+    veh_capacity_map = {}
+    for t in trips:
+        if "id" in t and "actual_capacity" in t:
+            veh_capacity_map[t["id"]] = t["actual_capacity"]
 
     # Process stops
     for stop in stops:
@@ -149,14 +165,22 @@ def aggregate_station_features(trips: list[dict],
         charging_durs[s_idx][t_bin].append(dur)
         blocked_durs[s_idx][t_bin].append(stop["blocked_duration"])
 
-    # Process charging station data for energy
+    # Process charging station data for energy and SoC
     for cs_id, cs_data in charging_data.items():
         if cs_id not in STATION_ID_MAP:
             continue
         s_idx = STATION_ID_MAP[cs_id]
         for veh in cs_data["vehicles"]:
             t_bin = time_to_bin(veh["begin"])
-            features[s_idx, t_bin, 2] += veh["energy_charged"]
+            energy = veh["energy_charged"]
+            features[s_idx, t_bin, 2] += energy
+            
+            # Estimate SoC at arrival
+            veh_id = veh["id"]
+            if veh_id in veh_capacity_map and veh_capacity_map[veh_id] > 0:
+                capacity = veh_capacity_map[veh_id]
+                soc_arrival = max(0.0, 1.0 - min((energy / capacity), 1.0))
+                soc_arrivals[s_idx][t_bin].append(soc_arrival)
 
     # Fill feature array
     for s in range(N_STATIONS):
@@ -179,12 +203,9 @@ def aggregate_station_features(trips: list[dict],
                 total_charging = sum(charging_durs[s][t])
                 features[s, t, 4] = min(total_charging / BIN_SIZE, 1.0)
 
-            # Feature 5: avg SoC at arrival (estimated from energy charged)
-            # Higher energy charged = lower SoC at arrival
-            # Normalize: energy / max_capacity (35000 Wh)
-            if charging_durs[s][t]:
-                avg_energy = features[s, t, 2] / max(arrival_counts[s, t], 1)
-                features[s, t, 5] = 1.0 - min(avg_energy / 35000, 1.0)
+            # Feature 5: avg SoC at arrival
+            if soc_arrivals[s][t]:
+                features[s, t, 5] = np.mean(soc_arrivals[s][t])
 
     return features
 
@@ -239,7 +260,8 @@ def parse_single_run(run_dir: Path) -> dict | None:
 def parse_all_runs(output_base: Path | None = None) -> list[dict]:
     """Parse all simulation runs in the output directory."""
     if output_base is None:
-        output_base = Path(__file__).resolve().parent / "sim_outputs"
+        # Resolve to data/sumo/sim_outputs
+        output_base = Path(__file__).resolve().parent.parent.parent / "data" / "sumo" / "sim_outputs"
 
     run_dirs = sorted(output_base.glob("run_*"))
     print(f"Found {len(run_dirs)} simulation runs in {output_base}")

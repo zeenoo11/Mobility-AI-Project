@@ -21,9 +21,9 @@ from pathlib import Path
 from xml.etree import ElementTree as ET
 
 # ── Paths ──────────────────────────────────────────────────────────────────
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-SUMO_DIR = Path(__file__).resolve().parent
-TUTORIAL_DIR = SUMO_DIR / "tutorial" / "5_electric"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+SUMO_DIR = PROJECT_ROOT / "data" / "sumo"
+TUTORIAL_DIR = PROJECT_ROOT / "assets" / "sumo_tutorial" / "5_electric"
 OUTPUT_BASE = SUMO_DIR / "sim_outputs"
 
 # SUMO binary — adjust if different on your system
@@ -36,28 +36,33 @@ SUMO_TOOLS = os.path.join(SUMO_HOME, "tools")
 # ── Parameter Grid ─────────────────────────────────────────────────────────
 PARAM_GRID = {
     # Battery capacity: normc(mean, std, min, max)
-    "battery_mean": [3000, 5000, 8000],
-    "battery_std": [2000, 3000],
+    "battery_mean": [50000, 75000, 100000],
+    "battery_std": [10000, 20000],
     # Charging behavior
     "need_to_charge_level": [0.05, 0.10, 0.20],
-    "saturated_charge_level": [0.3, 0.5],
+    "saturated_charge_level": [0.8, 0.9, 1.0],
     # Random seed for route sampling variation
     "seed": [42, 123, 456],
 }
 
 
 def generate_vtypes_xml(output_path: Path, battery_mean: float,
-                        battery_std: float, battery_min: float = 1000,
-                        battery_max: float = 35000):
+                        battery_std: float, battery_min: float = 10000,
+                        battery_max: float = 150000):
     """Generate vtypes.xml with specified battery distribution."""
     root = ET.Element("additional")
     vtype = ET.SubElement(root, "vType", id="DEFAULT_VEHTYPE")
     ET.SubElement(vtype, "param", key="has.battery.device", value="true")
-    ET.SubElement(
-        vtype, "param",
-        key="device.battery.chargeLevel",
-        value=f"normc({battery_mean},{battery_std},{battery_min},{battery_max})"
-    )
+    
+    capacity_dist = f"normc({battery_mean},{battery_std},{battery_min},{battery_max})"
+    ET.SubElement(vtype, "param", key="device.battery.capacity", value=capacity_dist)
+    
+    # Initialize charge level to a low distribution so some vehicles need charging
+    charge_mean = battery_mean * 0.25  # Start around 25% SOC
+    charge_std = battery_mean * 0.15
+    charge_dist = f"normc({charge_mean},{charge_std},1000,{battery_max})"
+    ET.SubElement(vtype, "param", key="device.battery.chargeLevel", value=charge_dist)
+
     tree = ET.ElementTree(root)
     ET.indent(tree, space="    ")
     tree.write(output_path, encoding="unicode", xml_declaration=True)
@@ -255,9 +260,9 @@ if __name__ == "__main__":
         info = run_single_simulation(
             run_id=9999,
             params={
-                "battery_mean": 5000, "battery_std": 3000,
-                "need_to_charge_level": 0.1,
-                "saturated_charge_level": 0.3,
+                "battery_mean": 50000, "battery_std": 10000,
+                "need_to_charge_level": 0.2,
+                "saturated_charge_level": 0.8,
                 "seed": 42,
             },
         )
