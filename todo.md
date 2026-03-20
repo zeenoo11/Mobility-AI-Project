@@ -6,16 +6,6 @@
 
 ---
 
-## Phase 0. 환경 구축 (1주차)
-
-- [x] Python 가상환경 생성 — **uv**로 관리 (`pyproject.toml`, `uv.lock`)
-  - 설치 패키지: `torch`, `numpy`, `pandas`, `scikit-learn`, `matplotlib`, `seaborn`, `shap`, `scipy`, `jupyter`, `ipykernel`
-  - 실행: `uv sync` / Jupyter: `uv run jupyter lab`
-- [x] 프로젝트 폴더 구조 확정 (`src/`, `notebooks/`, `data/`, `results/`, `report/`)
-- [ ] `src/` 아래 모듈 뼈대 생성 (`data_loader.py`, `models.py`, `train.py`, `evaluate.py`, `visualize.py`)
-
----
-
 ## Phase 1. 데이터 확보 및 전처리 (1~2개월차)
 
 ### 1-1. 데이터 다운로드
