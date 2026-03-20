@@ -225,3 +225,8 @@ data/**/*.txt
 # 체크포인트 및 결과 바이너리
 results/checkpoints/
 results/figures/
+
+# SUMO 파일
+sumo/graph_data/
+sumo/sim_outputs/
+sumo/tutorial/
